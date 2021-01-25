@@ -1,0 +1,187 @@
+###############################################################################################
+# Introducing 8-day maximum snow cover composite 
+# This portion of the methodology was not actually included in my thesis
+# However, the data here can be gathered from the same source, and it applies the 8-day temporally filtered
+# images to every 7-8 days depending on where the day falls
+###############################################################################################
+# This is the same MODIS function used in the methodology script 
+
+MODIS_OPEN <- function(path) {
+  MODIS <- list.files(path = path, pattern = c("Maximum_Snow_Extent",".tif"), full.names = TRUE, recursive = TRUE)
+  MODIS <- MODIS[!grepl("Basic_QA", MODIS)]
+  MODIS <- MODIS[!grepl("Algorithm_Flags", MODIS)]
+  MODIS <- sortfiles(MODIS)
+  MODIS <- lapply(MODIS, raster)
+}
+
+#split MODIS name data by tiles for mosaicking 
+split_lists <- function(raster_list){
+  e <- sapply(raster_list, extent)
+  l <- split(raster_list, f = factor(grepl("-91.38059", e)))
+}
+
+# Function will take the tiff files from their respective paths on a machine and open them
+# Split the lists as before, mosaic and cropping function
+
+e_day <- function(path){
+  MODIS <- MODIS_OPEN(path)%>%
+    split_lists()
+  MODIS <- list(var1=MODIS$'TRUE', var2 = MODIS$'FALSE')
+  output <- list()
+  for(i in 1:length(MODIS$var1)){
+    output[[i]] <- merge(MODIS$var1[[i]], MODIS$var2[[i]], fun = min, tolerance = 0.5)
+  }
+  MODIS <- lapply(output, crop_fun)
+  return(MODIS)
+}
+
+# Fills the cloud and unknown data pixels with NA so they do not fill other images with unknown data and cloud
+
+NA_fill_e <- function(images){
+  for(i in 1:length(images)){
+    images[[i]][images[[i]]@data@values == 0] <- NA
+    images[[i]][images[[i]]@data@values == 1] <- NA
+    images[[i]][images[[i]]@data@values == 11] <- NA
+    images[[i]][images[[i]]@data@values == 50] <- NA
+    images[[i]][images[[i]]@data@values == 254] <- NA
+    images[[i]][images[[i]]@data@values == 255] <- NA
+  }
+  return(images)
+}
+
+# Reclassify to binary like the rest of the images 
+
+reclass_binary_E <- function(raster_list){
+  reclassify(raster_list, c(24,39, 0, 90,200, 1), na.omit = T)
+}
+###############################################################################################
+# Applying the functions to each year
+
+E2003 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2003")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2004 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2004")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2005 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2005")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2006 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2006")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2007 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2007")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2008 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2008")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2009 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2009")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2010 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2010")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2011 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2011")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2012 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2012")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2013 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2013")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2014 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2014")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2015 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2015")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2016 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2016")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2017 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2017")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2018 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2018")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+
+E2019 <- e_day(path = "E:/Thesis/Thesis Data/MODIS/8day_product/2019")%>%
+  NA_fill_e()%>%
+  lapply(reclass_binary_E)
+###############################################################################################
+# This is the large function specifying which days to replace in the daily images with the corresponding 8-day images
+Replace_Eday <- function(SF, eight_day){
+  year_eight <- list()
+  for(i in 1:7){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[1]])
+  }
+  for(i in 8:17){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[2]])
+  }
+  for(i in 18:25){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[3]])
+  }
+  for(i in 26:32){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[4]])
+  }
+  for(i in 33:38){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[5]])
+  }
+  for(i in 39:46){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[6]])
+  }
+  for(i in 47:54){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[7]])
+  }
+  for(i in 55:62){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[8]])
+  }
+  for(i in 63:70){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[9]])
+  }
+  for(i in 71:78){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[10]])
+  }
+  for(i in 79:86){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[11]])
+  }
+  for(i in 87:91){
+    year_eight[[i]] <- cover(SF[[i]], eight_day[[12]])
+  }
+  return(year_eight)
+}
+###############################################################################################
+# Applying the replacement function to the spatially filtered images
+Final_2003 <- Replace_Eday(SF= SF_2003_c, eight_day = E2003)
+Final_2004 <- Replace_Eday(SF= SF_2004_c, eight_day = E2004)
+Final_2005 <- Replace_Eday(SF= SF_2005_c, eight_day = E2005)
+Final_2006 <- Replace_Eday(SF= SF_2006_c, eight_day = E2006)
+Final_2007 <- Replace_Eday(SF= SF_2007_c, eight_day = E2007)
+Final_2008 <- Replace_Eday(SF= SF_2008_c, eight_day = E2008)
+Final_2009 <- Replace_Eday(SF= SF_2009_c, eight_day = E2009)
+Final_2010 <- Replace_Eday(SF= SF_2010_c, eight_day = E2010)
+Final_2011 <- Replace_Eday(SF= SF_2011_c, eight_day = E2011)
+Final_2012 <- Replace_Eday(SF= SF_2012_c, eight_day = E2012)
+Final_2013 <- Replace_Eday(SF= SF_2013_c, eight_day = E2013)
+Final_2014 <- Replace_Eday(SF= SF_2014_c, eight_day = E2014)
+Final_2015 <- Replace_Eday(SF= SF_2015_c, eight_day = E2015)
+Final_2016 <- Replace_Eday(SF= SF_2016_c, eight_day = E2016)
+Final_2017 <- Replace_Eday(SF= SF_2017_c, eight_day = E2017)
+Final_2018 <- Replace_Eday(SF= SF_2018_c, eight_day = E2018)
+Final_2019 <- Replace_Eday(SF= SF_2019_c, eight_day = E2019)
