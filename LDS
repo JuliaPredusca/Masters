@@ -1,0 +1,173 @@
+###############################################################################################
+# Point data script
+# open csv files from each elevation 
+# These shapefiles containing the points were created in QGIS via 'create shapefile' 
+# using the DEM as a guide to random sampling throughout various elevations
+# plot boxplots to show distrubtion for different watersheds within the study area
+###############################################################################################
+# In order to create the LDS dataset for last day of snow in each elevation bin
+# The shape file point data must be extracted
+
+# This function will take the points specified and apply them to each year on the same point
+point_tbs <- function(points, image, DEM){
+  brick <- brick(image)
+  stack <- stack(DEM, brick)
+  crop <- raster::extract(stack, points@coords)
+  df <- as.data.frame(crop)
+  return(df)
+}
+
+# Then we use this function to change the headers and format the e date strings as well 
+format_tables <- function(point_table, dates_string){
+  df <- as.data.frame(t(point_table))
+  df <- df[-1,]
+  row.names(df) <- format(dates_string, format = "%m-%d")
+  # Change the year names here and the point number for each file
+  colnames(df) <- c("P1_2003", "P2_2003","P3_2003","P4_2003","P5_2003",
+                    "P6_2003","P7_2003","P8_2003","P9_2003","P10_2003",
+                    "P11_2003", "P12_2003", "P13_2003", "P14_2003", "P15_2003",
+                    "P16_2003", "P17_2003", "P18_2003", "P19_2003", "P20_2003", 
+                    "P21_2003", "P22_2003")
+  return(df)
+}
+###############################################################################################
+# Here is an example for how this works 
+# First we take the shp file from its location on the machine
+
+points_high <- readOGR("E:/Thesis/Thesis Data/Data Tables/Okanagan/Points/more_points.shp")
+# Then we apply the points function to put this data into a table
+
+high_points <- point_tbs(points = points_high, image = SL_2019, DEM = DEM)%>%
+  t()
+
+# Then we format these tables 
+# dates_2019 <- seq(as.Date('2019-04-01'), as.Date('2019-06-30'), by = 'days') 
+
+high_points_format <-format_tables(point_table = high_points, dates_string = dates_2019)
+
+# From these tables we can manually assess where the last day of snow is for each year using this string of code
+
+###############################################################################################
+# After we run the previous blocks of code on each of the watersheds and each elevation bin for each year
+# The LDS can be recorded on an excel file
+# Using these excel files, boxplots can be created for each watershed to show the distribution of LDS
+###############################################################################################
+# South Thompson watershed
+points_1800 <- read.csv("E:/Thesis/Thesis Data/Data Tables/South_thom/LDS_2.csv")
+points_1700 <- read.csv("E:/Thesis/Thesis Data/Data Tables/South_thom/LDS_2.csv")
+points_1400 <- read.csv("E:/Thesis/Thesis Data/Data Tables/South_thom/LDS_1.csv")
+
+# Remove the elevation column 
+
+points_1800 <- points_1800[,-1]
+points_1700 <- points_1700[,-1]
+points_1400 <- points_1400[,-1]
+
+
+boxplot(points_1400, main = "Last day of snow cover for 23 cloud free points throughout the off-season for 
+        elevations from 1100-1500 m.a.s.l. in the South Thompson Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_1700, main = "Last day of snow cover for 22 cloud free points throughout the off-season for 
+        elevations from 1500-1900 m.a.s.l. in the South Thompson Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_1800, main = "Last day of snow cover for 17 cloud free points throughout the off-season for
+        elevations from 1900-2300 m.a.s.l. in the South Thompson Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+###############################################################################################
+# Thompson watershed
+
+points_1400 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Thoms/LDS_2.csv")
+points_1800 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Thoms/LDS_1.csv")
+
+points_1400 <- points_1400[,-1]
+points_1800 <- points_1800[,-1]
+
+boxplot(points_1400, main = "Last day of snow cover for 12 cloud free points throughout the off-season for
+        elevations from 1300-1600 m.a.s.l. in the Thompson Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_1800, main = "Last day of snow cover for 12 cloud free points throughout the off-season for
+        elevations from 1600-1900 m.a.s.l. in the Thompson Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+###############################################################################################
+# Okanagan
+
+points_1400 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Okanagan/LDS_1.csv")
+points_1800 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Okanagan/LDS_2.csv")
+points_2000 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Okanagan/LDS_3.csv")
+
+points_1400 <- points_1400[,-1]
+points_1800 <- points_1800[,-1]
+points_2000 <- points_2000[,-1]
+
+boxplot(points_1400, main = "Last day of snow cover for 16 cloud free points throughout the off-season for
+        elevations from 1000-1400 m.a.s.l. in the Okanagan Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_1800, main = "Last day of snow cover for 28 cloud free points throughout the off-season for
+        elevations from 1400-1900 m.a.s.l. in the Okanagan Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_2000, main = "Last day of snow cover for 28 cloud free points throughout the off-season for
+        elevations from 1900-2300 m.a.s.l. in the Okanagan Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+###############################################################################################
+# Columbia
+
+points_1400 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Columbia/LDS_1.csv")
+points_1800 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Columbia/LDS_2.csv")
+points_2000 <- read.csv("E:/Thesis/Thesis Data/Data Tables/Columbia/LDS_3.csv")
+
+points_1400 <- points_1400[,-1]
+points_1800 <- points_1800[,-1]
+points_2000 <- points_2000[,-1]
+
+boxplot(points_1400, main = "Last day of snow cover for 16 cloud free points throughout the off-season for
+        elevations from 1000-1400 m.a.s.l. in the Columbia Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_1800, main = "Last day of snow cover for 18 cloud free points throughout the off-season for
+        elevations from 1400-1900 m.a.s.l. in the Columbia Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+boxplot(points_2000, main = "Last day of snow cover for 18 cloud free points throughout the off-season for
+        elevations from 1900-2300 m.a.s.l. in the Columbia Watershed", xlab = "Year", ylab = "Day in Study Period")
+
+
+
+###############################################################################################
+# Multiple linear regression, viewing the effects of the PDO ONI and PNA on the LDS dataset 
+# at various elevation bins 
+# The .csv files are seperated by elevation
+# Each of these files contains the median LDS for that elevation bin for each year, along with the associated PDO, PNA and ONI for each year 
+# These indices are also averaged across the year for PNA and PDO
+# The ONI regression is done for each 3-month interval for each year
+# The table used for this contains each median LDS for each elevation bin by year and the 3-month intervals of ONI 
+###############################################################################################
+# Opening each of the dataframes
+
+df_900 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_900.csv")
+df_1000 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_1000.csv")
+df_1200 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_1200.csv")
+df_1400 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_1400.csv")
+df_1800 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_1800.csv")
+df_1900 <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR_1900.csv")
+
+# Fit the MLR 
+
+fit_900 <- lm(Median.900m ~ PDO + PNA, data = df_900)
+fit_1000 <- lm(Median.1200m ~ PDO + PNA, data = df_1000)
+fit_1200 <- lm(Median.1200m ~ PDO + PNA, data = df_1200)
+fit_1400 <- lm(Median.1400m ~ PDO + PNA, data = df_1400)
+fit_1800 <- lm(Median.1500m ~ PDO + PNA, data = df_1800)
+fit_1900 <- lm(Median.1900m ~ PDO + PNA, data = df_1900)
+
+# Dataframe with 3-month averages of ONI and all interval elevation LDS data
+
+df <- read.csv("E:/Thesis/Thesis Data/Data Tables/MLR/MLR.csv")
+# This can be used for each of the linear regressions done
+# Change the Median value and the month interval value 
+fit_ONI <- lm(Median.900m ~ MAM, data = df)
+
+###############################################################################################
+
+# This data can be summarized by either extracting the data or recording the important information from 
+# each regression to an excel file 
+
+
+
