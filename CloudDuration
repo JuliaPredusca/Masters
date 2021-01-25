@@ -1,0 +1,138 @@
+###############################################################################################
+# This script is the cloud duration map creation
+###############################################################################################
+# The clouds are all added back into the image where NA pixels were 
+# Then the images are cropped to the study region again
+
+# The same shp file here
+shp <- readOGR("E:/Thesis/Thesis Data/BC watershed Shapefiles/Thompson.shp")
+Thompson_Okanagan_Region_SHP <- spTransform(shp, crs("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+
+reclass_binary_c <- function(raster_list){
+  reclassify(raster_list, c(0,1, 0), na.omit = T)
+}
+
+# the same crop function from previous scripts
+crop_fun <- function(raster_to_crop){
+  cropped <- crop(raster_to_crop, Thompson_Okanagan_Region_SHP, subset = TRUE)
+  mask(cropped, Thompson_Okanagan_Region_SHP)
+}
+
+############################################################################################### 
+# Create cloud duration maps using the reclassify function
+# Then cropping and bricking the annual datasets
+# Then add each of the pixels together
+# Each cloud pixel will be represented by a binary value
+# The plotted values will then represent the number of days each pixel was cloud covered 
+############################################################################################### 
+
+cloud_duration2019 <- lapply(SL_2019, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2018 <- lapply(SL_2018, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2017 <- lapply(SL_2017, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2016 <- lapply(SL_2016, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2015 <- lapply(SL_2015, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2014 <- lapply(SL_2014, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2013 <- lapply(SL_2013, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2012 <- lapply(SL_2012, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2011 <- lapply(SL_2011, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2010 <- lapply(SL_2010, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2009 <- lapply(SL_2009, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2008 <- lapply(SL_2008, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2007 <- lapply(SL_2007, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2006 <- lapply(SL_2006, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2005 <- lapply(SL_2005, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2004 <- lapply(SL_2004, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+cloud_duration2003 <- lapply(SL_2003, reclass_binary_c)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  brick()%>%
+  calc(sum)
+
+############################################################################################### 
+# Regular plotting works well for these images 
+
+cols <- RColorBrewer::brewer.pal(14, "Purples")
+plot(cloud_duration2019, legend = T, col = cols, main = "2019 SNOWL")
+
+############################################################################################### 
+
