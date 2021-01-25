@@ -1,4 +1,4 @@
-<font size="-14">Description</font>
+<font size="12">Description</font>
 # Masters
 
 # This repository is the code used for my masters thesis research
