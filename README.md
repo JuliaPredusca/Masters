@@ -1,3 +1,6 @@
+@settings {
+  font-size: 12;
+}
 # Masters
 
 # This repository is the code used for my masters thesis research
