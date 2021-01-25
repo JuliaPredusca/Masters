@@ -1,0 +1,498 @@
+######################################################################################
+# Analysis portion
+# Extracting proportions, graphs and analyzing effectiveness
+######################################################################################
+
+# extract porportions of each class with function
+
+proportion <- function(input_raster) {
+  na.omit(as_tibble(input_raster, cell = T, value=T))%>%
+    mutate(land = case_when(
+      between(cellvalue, 0, 0) ~ "Land",
+      between(cellvalue, 1, 100) ~ "Snow",
+      between(cellvalue, 200, 200) ~ "Missing_Data",
+      between(cellvalue, 201, 201)~ "No_Decision",
+      between(cellvalue, 211, 211) ~ "Night",
+      between(cellvalue, 237, 237) ~ "Inland_Water",
+      between(cellvalue, 250, 250) ~ "Cloud",
+      between(cellvalue, 254, 254) ~ "Detector_Saturated"
+    )) %>% dplyr::count(land, sort = F, .drop = FALSE)%>%
+    mutate(proportion = n / sum(n))
+}
+
+######################################################################################
+
+# date lists for each year
+
+dates_2003 <- seq(as.Date('2003-04-01'), as.Date('2003-06-30'), by = 'days')
+dates_2004 <- seq(as.Date('2004-04-01'), as.Date('2004-06-30'), by = 'days')
+dates_2005 <- seq(as.Date('2005-04-01'), as.Date('2005-06-30'), by = 'days')
+dates_2006 <- seq(as.Date('2006-04-01'), as.Date('2006-06-30'), by = 'days')
+dates_2007 <- seq(as.Date('2007-04-01'), as.Date('2007-06-30'), by = 'days')
+dates_2008 <- seq(as.Date('2008-04-01'), as.Date('2008-06-30'), by = 'days')
+dates_2009 <- seq(as.Date('2009-04-01'), as.Date('2009-06-30'), by = 'days')
+dates_2010 <- seq(as.Date('2010-04-01'), as.Date('2010-06-30'), by = 'days')
+dates_2011 <- seq(as.Date('2011-04-01'), as.Date('2011-06-30'), by = 'days')
+dates_2012 <- seq(as.Date('2012-04-01'), as.Date('2012-06-30'), by = 'days')
+dates_2013 <- seq(as.Date('2013-04-01'), as.Date('2013-06-30'), by = 'days')
+dates_2014 <- seq(as.Date('2014-04-01'), as.Date('2014-06-30'), by = 'days')
+dates_2015 <- seq(as.Date('2015-04-01'), as.Date('2015-06-30'), by = 'days')
+dates_2016 <- seq(as.Date('2016-04-01'), as.Date('2016-06-30'), by = 'days')
+dates_2017 <- seq(as.Date('2017-04-01'), as.Date('2017-06-30'), by = 'days')
+dates_2018 <- seq(as.Date('2018-04-01'), as.Date('2018-06-30'), by = 'days')
+dates_2019 <- seq(as.Date('2019-04-01'), as.Date('2019-06-30'), by = 'days')
+######################################################################################
+
+# This function will extract the proportions for each raster for each of the landcover types
+
+extract_props <- function(type_prop){
+  prop_list <- list()
+  for(i in 1:length(type_prop)){
+    prop_list[[i]] <- type_prop[[i]]$proportion
+  }
+  return(prop_list)
+}
+
+# These two functions use the above function but are tailored to only extract either snow or cloud
+# any other landcover type can be input into these functions 
+
+Cloud_prop_fun <- function(raster_list){
+  lapply(raster_list, proportion)%>%
+    lapply(filter, land == "Cloud")%>%
+    extract_props()
+}
+Snow_prop_fun <- function(raster_list){
+  lapply(raster_list, proportion)%>%
+    lapply(filter, land == "Snow")%>%
+    extract_props()%>%
+    unlist()
+}
+
+###############################################################################################
+# Extract proportions of cloud for each year without any method applied 
+###############################################################################################
+# Have to NA fill the entire image and then add clouds for each class that is no data/saturated
+# cloud etc 
+# this can be done for each of the datasets where cloud proportions need to be extracted 
+# Terra, Aqua, VIIRS, TAC, Combined, ATD 1, ATD 2, SF and SNOWL to compare
+###############################################################################################
+# Cloud proportion for 2012 
+cloud_SF2004 <- NA_fill(SF_2004)%>%
+  cloud_add()%>%
+  lapply(crop_fun)%>%
+  Cloud_prop_fun()
+
+# where there is no cloud, the value will be NULL, we need to change NULL values in the list to 0 instead
+cloud_SF2004[[82]]<-0
+
+# remove the extra days used for the temporal deduction
+Aqua11_cloud <- Aqua11_cloud[-c(1,2,94,95)]
+
+###############################################################################################
+# Extracting all cloud proportions for each type
+# Note this isnt an exhaustive list of all the cloud cover proportions required 
+
+Aqua13_cloud <- Cloud_prop_fun(Aqua_2013)
+Aqua14_cloud <- Cloud_prop_fun(Aqua_2014)
+Aqua15_cloud <- Cloud_prop_fun(Aqua_2015)
+Aqua16_cloud <- Cloud_prop_fun(Aqua_2016)
+Aqua17_cloud <- Cloud_prop_fun(Aqua_2017)
+Aqua18_cloud <- Cloud_prop_fun(Aqua_2018)
+Aqua19_cloud <- Cloud_prop_fun(Aqua_2019)
+
+
+Terra13_cloud <- Cloud_prop_fun(Terra_2013)
+Terra14_cloud <- Cloud_prop_fun(Terra_2014)
+Terra15_cloud <- Cloud_prop_fun(Terra_2015)
+Terra16_cloud <- Cloud_prop_fun(Terra_2016)
+Terra17_cloud <- Cloud_prop_fun(Terra_2017)
+Terra18_cloud <- Cloud_prop_fun(Terra_2018)
+Terra19_cloud <- Cloud_prop_fun(Terra_2019)
+
+
+VIIRS13_cloud <- Cloud_prop_fun(VIIRS_2013)
+VIIRS14_cloud <- Cloud_prop_fun(VIIRS_2014)
+VIIRS15_cloud <- Cloud_prop_fun(VIIRS_2015)
+VIIRS16_cloud <- Cloud_prop_fun(VIIRS_2016)
+VIIRS17_cloud <- Cloud_prop_fun(VIIRS_2017)
+VIIRS18_cloud <- Cloud_prop_fun(VIIRS_2018)
+VIIRS19_cloud <- Cloud_prop_fun(VIIRS_2019)
+
+
+###############################################################################################
+# plotting these values to compare
+###############################################################################################
+# Once we have extracted each cloud proportion dataset 
+# we can create a DF for each year showing daily cloud proportion 
+# Visualizing how much cloud was reduced with each additional methodology 
+
+Cloud_2003 <- data.frame(date = dates_2003, TAC = Year2003_TAC_cloud,
+                        ATD = Year2003_ATD, ATD2 = Year2003_ATD2, SF = cloud_2003, SNOWL = cl_2003)
+
+Cloud2003 <- melt(Cloud_2003, id.vars = "date")
+names(Cloud2003) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2003, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2003")
+
+###############################################################################################
+
+Cloud_2004 <- data.frame(date = dates_2004, TAC = Year2004_TAC_cloud,
+                         ATD = Year2004_ATD, ATD2 = Year2004_ATD2, SF = cloud_2004, SNOWL = cl_2004)
+
+Cloud2004 <- melt(Cloud_2004, id.vars = "date")
+names(Cloud2004) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2004, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2004")
+
+Cloud_2005 <- data.frame(date = dates_2005, TAC = Year2005_TAC_cloud,
+                         ATD = Year2005_ATD, ATD2 = Year2005_ATD2, SF = cloud_2005, SNOWL = cl_2005)
+
+Cloud2005 <- melt(Cloud_2005, id.vars = "date")
+names(Cloud2005) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2005, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2005")
+
+
+Cloud_2006 <- data.frame(date = dates_2006, TAC = Year2006_TAC_cloud,
+                         ATD = Year2006_ATD, ATD2 = Year2006_ATD2, SF = cloud_2006, SNOWL = cl_2006)
+
+Cloud2006 <- melt(Cloud_2006, id.vars = "date")
+names(Cloud2006) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2006, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2006")
+
+
+Cloud_2007 <- data.frame(date = dates_2007, TAC = Year2007_TAC_cloud,
+                         ATD = Year2007_ATD, ATD2 = Year2007_ATD2, SF = cloud_2007, SNOWL = cl_2007)
+
+Cloud2007 <- melt(Cloud_2007, id.vars = "date")
+names(Cloud2007) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2007, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2007")
+
+
+Cloud_2008 <- data.frame(date = dates_2008, TAC = Year2008_TAC_cloud,
+                         ATD = Year2008_ATD, ATD2 = Year2008_ATD2, SF = cloud_2008, SNOWL = cl_2008)
+
+Cloud2008 <- melt(Cloud_2008, id.vars = "date")
+names(Cloud2008) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2008, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2008")
+
+
+Cloud_2009 <- data.frame(date = dates_2009, TAC = Year2009_TAC_cloud,
+                         ATD = Year2009_ATD, ATD2 = Year2009_ATD2, SF = cloud_2009, SNOWL = cl_2009)
+
+Cloud2009 <- melt(Cloud_2009, id.vars = "date")
+names(Cloud2009) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2009, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2009")
+
+Cloud_2010 <- data.frame(date = dates_2010, TAC = Year2010_TAC_cloud,
+                         ATD = Year2010_ATD, ATD2 = Year2010_ATD2, SF = cloud_2010, SNOWL = cl_2010)
+
+Cloud2010 <- melt(Cloud_2010, id.vars = "date")
+names(Cloud2010) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2010, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2010")
+
+
+Cloud_2011 <- data.frame(date = dates_2011, TAC = Year2011_TAC_cloud,
+                         ATD = Year2011_ATD, ATD2 = Year2011_ATD2, SF = cloud_2011, SNOWL = cl_2011)
+
+Cloud2011 <- melt(Cloud_2011, id.vars = "date")
+names(Cloud2011) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2011, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2011")
+
+###############################################################################################
+
+# Table of each satellite alone and the combined from 2012-2019
+# This includes the combined dataset with VIIRS as well  
+
+Cloud_2012 <- data.frame(date = dates_2012, TAC = Year2012_TAC_cloud,
+                         Combined = Year2012_cloud, ATD = Year2012_ATD, ATD2 = Year2012_ATD2, SF = cloud_2012, SNOWL = cl_2012)
+
+Cloud2012 <- melt(Cloud_2012, id.vars = "date")
+names(Cloud2012) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud2012, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2012")
+
+###############################################################################################
+
+Cloud_2013 <- data.frame(date = dates_2013, TAC = Year2013_TAC_cloud,
+                         Combined = Year2013_cloud, ATD = Year2013_ATD, ATD2 = Year2013_ATD2, SF = cloud_2013, SNOWL = cl_2013)%>%
+  melt(id.vars = "date")
+names(Cloud_2013) <- c("Date", "Dataset", "Cloud_Proportion")
+
+
+ggplot(Cloud_2013, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2013")
+
+Cloud_2014 <- data.frame(date = dates_2014, TAC = Year2014_TAC_cloud,
+                         Combined = Year2014_cloud, ATD = Year2014_ATD, ATD2 = Year2014_ATD2, SF = cloud_2014, SNOWL = cl_2014)%>%
+  melt(id.vars = "date")
+names(Cloud_2014) <- c("Date", "Dataset", "Cloud_Proportion")
+
+
+ggplot(Cloud_2014, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2014")
+
+Cloud_2015 <- data.frame(date = dates_2015, TAC = Year2015_TAC_cloud,
+                        Combined = Year2015_cloud, ATD = Year2015_ATD, ATD2 = Year2015_ATD2, SF = cloud_2015, SNOWL = cl_2015)%>%
+  melt(id.vars = "date")
+names(Cloud_2015) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud_2015, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2015")
+
+
+Cloud_2016 <- data.frame(date = dates_2016, TAC = Year2016_TAC_cloud,
+                         Combined = Year2016_cloud, ATD = Year2016_ATD, ATD2 = Year2016_ATD2, SF = cloud_2016, SNOWL = cl_2016)%>%
+  melt(id.vars = "date")
+names(Cloud_2016) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud_2016, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2016")
+
+
+Cloud_2017 <- data.frame(date = dates_2017, TAC = Year2017_TAC_cloud,
+                         Combined = Year2017_cloud, ATD = Year2017_ATD, ATD2 = Year2017_ATD2, SF = cloud_2017, SNOWL = cl_2017)%>%
+  melt(id.vars = "date")
+names(Cloud_2017) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud_2017, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2017")
+
+Cloud_2018 <- data.frame(date = dates_2018, TAC = Year2018_TAC_cloud,
+                         Combined = Year2018_cloud, ATD = Year2018_ATD, ATD2 = Year2018_ATD2, SF = cloud_2018, SNOWL = cl_2018)%>%
+  melt(id.vars = "date")
+names(Cloud_2018) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud_2018, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+1
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2018")
+
+Cloud_2019 <- data.frame(date = dates_2019, TAC = Year2019_TAC_cloud,
+                         Combined = Year2019_cloud, ATD = Year2019_ATD, ATD2 = Year2019_ATD2, SF = cloud_2019, SNOWL = cl_2019)%>%
+  melt(id.vars = "date")
+names(Cloud_2019) <- c("Date", "Dataset", "Cloud_Proportion")
+
+ggplot(Cloud_2019, aes(x = Date, y = Cloud_Proportion, color = Dataset))+
+  geom_line()+
+  theme_ipsum()+
+  ylab("Cloud Proportion")+
+  ggtitle("Cloud Proportion of Each Dataset in 2019")
+
+
+###############################################################################################
+# Additional data gathered with the addition of VIIRS to the product
+# Create graphs for each year with TAC-Combined
+# How much cloud does VIIRS reduce ?
+###############################################################################################
+diff_2012 <- data.frame(x = dates_2012, Cloud_Diff= Year2012_TAC_cloud - Year2012_cloud)
+diff_2013 <- data.frame(x = dates_2013, Cloud_Diff= Year2013_TAC_cloud - Year2013_cloud)
+diff_2014 <- data.frame(x = dates_2014, Cloud_Diff= Year2014_TAC_cloud - Year2014_cloud)
+diff_2015 <- data.frame(x = dates_2015, Cloud_Diff= Year2015_TAC_cloud - Year2015_cloud)
+diff_2016 <- data.frame(x = dates_2016, Cloud_Diff= Year2016_TAC_cloud - Year2016_cloud)
+diff_2017 <- data.frame(x = dates_2017, Cloud_Diff= Year2017_TAC_cloud - Year2017_cloud)
+diff_2018 <- data.frame(x = dates_2018, Cloud_Diff= Year2018_TAC_cloud - Year2018_cloud)
+diff_2019 <- data.frame(x = dates_2019, Cloud_Diff= Year2019_TAC_cloud - Year2019_cloud)
+
+# Visualizing this 
+
+ggplot(diff_2019, aes(x=x, y = Cloud_Diff))+
+  geom_segment(aes(x = x, xend = x, y = 0, yend = Cloud_Diff), color = "darkseagreen3", size = 1.8, alpha = 0.8) +
+  theme_light() +
+  theme(
+    legend.position = "none", 
+    panel.border = element_blank(),
+  ) +
+  xlab("") +
+  ylab("Cloud Proportion TAC-Combined Product")+
+  ggtitle("Proportion of Cloud reduction with the Addition of VIIRS 2019")
+
+
+###############################################################################################
+# Plotting cloud duration maps
+###############################################################################################
+plot(SF_april1, legend = F, col = colss, main = "Landsat-8 and Spatially Filtered Cloud Reduced Image\n Agreement, April 1st 2014")
+legend("bottomright", legend=c("Non-Forest True Negative","Forest True Negative","Non-Forest False Positive",
+                               "Forest False Positive","Non-Forest False Negative","Forest False Negative",
+                               "Non-Forest True Positive", "Forest True Positive"), fill = colss)
+
+###############################################################################################
+# Getting snow and cloud proportions
+###############################################################################################
+SF_2019_c <- cloud_add(SF_2019_c)%>%
+  lapply(crop_fun)
+
+# Extracting snow proportions for each year 
+
+snow_2003 <- Snow_prop_fun(SL_2003)
+snow_2004 <- Snow_prop_fun(SL_2004)
+snow_2005 <- Snow_prop_fun(SL_2005)
+snow_2006 <- Snow_prop_fun(SL_2006)
+snow_2007 <- Snow_prop_fun(SL_2007)
+snow_2008 <- Snow_prop_fun(SL_2008)
+snow_2009 <- Snow_prop_fun(SL_2009)
+snow_2010 <- Snow_prop_fun(SL_2010)
+snow_2011 <- Snow_prop_fun(SL_2011)
+snow_2012 <- Snow_prop_fun(SL_2012)
+snow_2013 <- Snow_prop_fun(SL_2013)
+snow_2014 <- Snow_prop_fun(SL_2014)
+snow_2015 <- Snow_prop_fun(SL_2015)
+snow_2016 <- Snow_prop_fun(SL_2016)
+snow_2017 <- Snow_prop_fun(SL_2017)
+snow_2018 <- Snow_prop_fun(SL_2018)
+snow_2019 <- Snow_prop_fun(SL_2019)
+
+# Extracting cloud proportions for each year 
+
+cloud_2003 <- cloud_add(SF_2003_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2004 <- cloud_add(SF_2004_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2005 <- cloud_add(SF_2005_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2006 <- cloud_add(SF_2006_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2007 <- cloud_add(SF_2007_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2008 <- cloud_add(SF_2008_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2009 <- cloud_add(SF_2009_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2010 <- cloud_add(SF_2010_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2011 <- cloud_add(SF_2011_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2012 <- cloud_add(SF_2012_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2013 <- cloud_add(SF_2013_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2014 <- cloud_add(SF_2014_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2015 <- cloud_add(SF_2015_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2016 <- cloud_add(SF_2016_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2017 <- cloud_add(SF_2017_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2018 <- cloud_add(SF_2018_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+cloud_2019 <- cloud_add(SF_2019_c)%>%lapply(crop_fun)%>%Cloud_prop_fun()
+
+cloud_2003 <- unlist(cloud_2003)
+cloud_2004 <- unlist(cloud_2004)
+cloud_2005 <- unlist(cloud_2005)
+cloud_2006 <- unlist(cloud_2006)
+cloud_2007 <- unlist(cloud_2007)
+cloud_2008 <- unlist(cloud_2008)
+cloud_2009 <- unlist(cloud_2009)
+cloud_2010 <- unlist(cloud_2010)
+cloud_2011 <- unlist(cloud_2011)
+cloud_2012 <- unlist(cloud_2012)
+cloud_2013 <- unlist(cloud_2013)
+cloud_2014 <- unlist(cloud_2014)
+cloud_2015 <- unlist(cloud_2015)
+cloud_2016 <- unlist(cloud_2016)
+cloud_2017 <- unlist(cloud_2017)
+cloud_2018 <- unlist(cloud_2018)
+cloud_2019 <- unlist(cloud_2019)
+
+
+cloud_2003 <- Cloud_prop_fun(SF_2003_c)
+cloud_2004 <- Cloud_prop_fun(SF_2004_c)
+cloud_2005 <- Cloud_prop_fun(SF_2005_c)
+cloud_2006 <- Cloud_prop_fun(SF_2006_c)
+cloud_2007 <- Cloud_prop_fun(SF_2007_c)
+cloud_2008 <- Cloud_prop_fun(SF_2008_c)
+cloud_2009 <- Cloud_prop_fun(SF_2009_c)
+cloud_2010 <- Cloud_prop_fun(SF_2010_c)
+cloud_2011 <- Cloud_prop_fun(SF_2011_c)
+cloud_2012 <- Cloud_prop_fun(SF_2012_c)
+cloud_2013 <- Cloud_prop_fun(SF_2013_c)
+cloud_2014 <- Cloud_prop_fun(SF_2014_c)
+cloud_2015 <- Cloud_prop_fun(SF_2015_c)
+cloud_2016 <- Cloud_prop_fun(SF_2016_c)
+cloud_2017 <- Cloud_prop_fun(SF_2017_c)
+cloud_2018 <- Cloud_prop_fun(SF_2018_c)
+cloud_2019 <- Cloud_prop_fun(SF_2019_c)
+
+###############################################################################################
+# Creating tables for snow and cloud propotions 
+###############################################################################################
+# create dates for day-month to add to the entire table by changing format to not include the year
+dates<- as.Date(dates_2003, format = "%m/%d")
+dates <- format(dates, format= "%m-%d")
+ 
+# Create dataframe of cloud coverage by proportion
+cloud_snowl <- data.frame(dates = dates, cloud2003 = cl_2003, cloud2004 = cl_2004, cloud2005 = cl_2005,
+                          cloud2006 = cl_2006, cloud2007 = cl_2007, cloud2008 = cl_2008, cloud2009 = cl_2009,
+                          cloud2010 = cl_2010, cloud2011 = cl_2011, cloud2012 = cl_2012, cloud2013 = cl_2013,
+                          cloud2014 = cl_2014,
+                          cloud2015 = cl_2015, cloud2016 = cl_2016, cloud2017 = cl_2017, cloud2018 = cl_2018,
+                          cloud2019 = cl_2019)
+ 
+# Create dataframe of cloud cover by percentage
+cloud_SF_perc <- data.frame(date = dates, cloud2003 = cloud_2003*100, cloud2004 = cloud_2004*100,
+                       cloud2005 = cloud_2005*100, cloud2006 = cloud_2006*100, cloud2007 = cloud_2007*100,
+                       cloud2008 = cloud_2008*100, cloud2009 = cloud_2009*100, cloud2010 = cloud_2010*100,
+                       cloud2011 = cloud_2011*100, cloud2012 = cloud_2012*100, cloud2013 = cloud_2013*100, 
+                       cloud2014 = cloud_2014*100, cloud2015 = cloud_2015*100, cloud2016 = cloud_2016*100, 
+                       cloud2017 = cloud_2017*100, cloud2018 = cloud_2018*100, cloud2019 = cloud_2019*100)
+ 
+# Create dataframe of snow cover proportion
+snow_snowl <- data.frame(dates = dates, s2003 = snow_2003, s2004 = snow_2004, s2005 = snow_2005,
+                         s2006 = snow_2006, s2007 = snow_2007, s2008 = snow_2008, s2009 = snow_2009, 
+                         s2010 = snow_2010, s2011 = snow_2011, s2012 = snow_2012, s2013 = snow_2013,
+                         s2014 = snow_2014, s2015 = snow_2015, s2016 = snow_2016, s2017 = snow_2017,
+                         s2018 = snow_2018, s2019 = snow_2019)
+
+
+
+write.csv(cloud_snowl, "cloud_snowl.csv")
+write.csv(snow_snowl, "snowcover_SNOWL.csv")
+###############################################################################################
