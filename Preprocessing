@@ -1,0 +1,510 @@
+###############################################################################################
+# This script takes raw data
+# Reprojects, mosaicks, crops and resamples
+###############################################################################################
+# add shapefile for the study area
+###############################################################################################
+# Reprojecting the Thompson Okanagan file
+
+shp <- readOGR("E:/Thesis/Thesis Data/BC watershed Shapefiles/Thompson.shp")
+Thompson_Okanagan_Region_SHP <- spTransform(shp, crs("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+
+# Going through all data, major functions 
+###############################################################################################
+# MODIS
+
+# Sorting files based on the location of the dates in the string of the names of each file
+# Note that the same function is used for both MODIS and VIIRS images
+# date substr location must be changed to reflect the location of dates for VIIRS strings and MODIS strings 
+
+sortfiles = function(files){
+  dates = c()
+  for (file in files){
+    date = as.numeric(substr(file, 68, 71))
+    dates = c(dates, date)
+  }
+  # Instead of sorting, order provides the # it would be in the new vector
+  sort_indices = order(dates, decreasing = FALSE) 
+  # Use these indices to sort the files vector instead of the date vector
+  files_sorted = files[sort_indices]
+  return (files_sorted)
+}
+sorted_files = sortfiles(VIIRS_2012)
+
+# this function will list each of the maximum snow extent tiff files from the path given 
+# removing the files not required, QA flag file and algorithm flags
+# using the sort files function to sort each image based on the date 
+# rasterize each image
+
+MODIS_OPEN <- function(path) {
+  MODIS <- list.files(path = path, pattern = c("Maximum_Snow_Extent",".tif"), full.names = TRUE, recursive = TRUE)
+  MODIS <- MODIS[!grepl("Basic_QA", MODIS)]
+  MODIS <- MODIS[!grepl("Algorithm_Flags", MODIS)]
+  MODIS <- sortfiles(MODIS)
+  MODIS <- lapply(MODIS, raster)
+}
+
+# splitting the data by tile number
+# Note the extent factor coorrdinate will have to be changed when running this on VIIRS files 
+
+split_lists <- function(raster_list){
+  e <- sapply(raster_list, extent)
+  l <- split(raster_list, f = factor(grepl("-91.38059", e)))
+}
+
+
+# Mosaicking function based on the TRUE and FALSE variables from the split lists function above 
+# This function is in working order, however, below this portion was done separately for each year 
+
+mosaicking <- function(mosaic){
+  output <- list()
+  for(i in 1:length(mosaic$var1)){
+    output[[i]] <- merge(mosaic$var1[[i]], mosaic$var2[[i]], fun = min, tolerance = 0.5)
+  }
+}
+
+# VIIRS 
+
+# open function to list the string values for each image in the path given, for the NDSI files 
+# Remove the QA, flags and grid files
+# Sorting function by date, again make sure the sorting function substr numbers are correct for these images 
+# rasterize each of the images
+
+VIIRS_OPEN <- function(path) {
+  VIIRS <- list.files(path = path, pattern = c("NDSI_Snow_Cover",".tif"), full.names = TRUE, recursive = TRUE)
+  VIIRS <- VIIRS[!grepl("Basic_QA", VIIRS)]
+  VIIRS <- VIIRS[!grepl("Algorithm_Flags", VIIRS)]
+  VIIRS <- VIIRS[!grepl("Grid_IMG_2D_NDSI_2", VIIRS)]
+  VIIRS <- sortfiles(VIIRS)
+  VIIRS <- lapply(VIIRS, raster)
+}
+
+# Reprojecting to any given Terra image
+# This function is very time consuming and requries alot of memory
+# this portion of the code was actually done in FME prior to opening the files in R
+# However, this can still be used
+
+sin_to_geog <- function(VIIRS_sin_grid){
+  projectRaster(VIIRS_sin_grid, res=res(Terra_2018[[1]]), crs=crs(Terra_2018[[1]]), method = 'ngb')
+}
+
+# Croppping each of the images to the shapefile for the project- Thompson Okanagan
+
+crop_fun <- function(raster_to_crop){
+  cropped <- crop(raster_to_crop, Thompson_Okanagan_Region_SHP, subset = TRUE)
+  mask(cropped, Thompson_Okanagan_Region_SHP)
+}
+
+# VIIRS is 375 m and MODIS is 500 m
+# In order to combine these images, they must be the same resolution and extent
+# This function will resample using nearest neighbor ensuring that the VIIRS and MODIS images match up
+
+re_extent <- function(raster_ex){
+  rast <- list()
+  for(i in 1:length(raster_ex)){
+    rast[[i]] <- resample(raster_ex[[i]], Terra_2018[[1]], method = 'ngb')
+  }
+  return(rast)
+}
+
+###############################################################################################
+# Remaining lines are the Terra/Aqua/VIIRS images being preprocessed and rasterized
+# They are separated because having each satellite for each years keeps the methdology clean and more readable
+# This also assists with memory/ram used in the processing
+
+###############################################################################################
+# 2000-2019 Terra 
+###############################################################################################
+Terra_2003 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2003")%>%
+  split_lists()
+Terra_2003 <- list(var1 = Terra_2003$'TRUE', var2 = Terra_2003$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2003$var1)){
+  output[[i]] <- merge(Terra_2003$var1[[i]], Terra_2003$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2003 <- lapply(output, crop_fun)
+
+Terra_2004 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2004")%>%
+  split_lists()
+Terra_2004 <- list(var1 = Terra_2004$'TRUE', var2 = Terra_2004$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2004$var2)){
+  output[[i]] <- merge(Terra_2004$var1[[i]], Terra_2004$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2004 <- lapply(output, crop_fun)
+
+Terra_2005 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2005")%>%
+  split_lists()
+Terra_2005 <- list(var1 = Terra_2005$'TRUE', var2 = Terra_2005$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2005$var1)){
+  output[[i]] <- merge(Terra_2005$var1[[i]], Terra_2005$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2005 <- lapply(output, crop_fun)
+
+Terra_2006 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2006")%>%
+  split_lists()
+Terra_2006 <- list(var1 = Terra_2006$'TRUE', var2 = Terra_2006$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2006$var1)){
+  output[[i]] <- merge(Terra_2006$var1[[i]], Terra_2006$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2006 <- lapply(output, crop_fun)
+
+Terra_2007 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2007")%>%
+  split_lists()
+Terra_2007 <- list(var1 = Terra_2007$'TRUE', var2 = Terra_2007$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2007$var1)){
+  output[[i]] <- merge(Terra_2007$var1[[i]], Terra_2007$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2007 <- lapply(output, crop_fun)
+
+Terra_2008 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2008")%>%
+  split_lists()
+Terra_2008 <- list(var1 = Terra_2008$'TRUE', var2 = Terra_2008$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2008$var1)){
+  output[[i]] <- merge(Terra_2008$var1[[i]], Terra_2008$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2008 <- lapply(output, crop_fun)
+
+Terra_2009 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2009")%>%
+  split_lists()
+Terra_2009 <- list(var1 = Terra_2009$'TRUE', var2 = Terra_2009$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2009$var1)){
+  output[[i]] <- merge(Terra_2009$var1[[i]], Terra_2009$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2009 <- lapply(output, crop_fun)
+
+Terra_2010 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2010")%>%
+  split_lists()
+Terra_2010 <- list(var1 = Terra_2010$'TRUE', var2 = Terra_2010$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2010$var1)){
+  output[[i]] <- merge(Terra_2010$var1[[i]], Terra_2010$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2010 <- lapply(output, crop_fun)
+
+Terra_2011 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2011")%>%
+  split_lists()
+Terra_2011 <- list(var1 = Terra_2011$'TRUE', var2 = Terra_2011$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2011$var1)){
+  output[[i]] <- merge(Terra_2011$var1[[i]], Terra_2011$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2011 <- lapply(output, crop_fun)
+
+Terra_2012 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2012")%>%
+  split_lists()
+Terra_2012 <- list(var1 = Terra_2012$'TRUE', var2 = Terra_2012$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2012$var1)){
+  output[[i]] <- merge(Terra_2012$var1[[i]], Terra_2012$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2012 <- lapply(output, crop_fun)
+
+Terra_2013 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2013")%>%
+  split_lists()
+Terra_2013 <- list(var1 = Terra_2013$'TRUE', var2 = Terra_2013$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2013$var1)){
+  output[[i]] <- merge(Terra_2013$var1[[i]], Terra_2013$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2013 <- lapply(output, crop_fun)
+
+Terra_2014 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2014")%>%
+  split_lists()
+Terra_2014 <- list(var1 = Terra_2014$'TRUE', var2 = Terra_2014$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2014$var1)){
+  output[[i]] <- merge(Terra_2014$var1[[i]], Terra_2014$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2014 <- lapply(output, crop_fun)
+
+Terra_2015 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2015")%>%
+  split_lists()
+Terra_2015 <- list(var1 = Terra_2015$'TRUE', var2 = Terra_2015$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2015$var1)){
+  output[[i]] <- merge(Terra_2015$var1[[i]], Terra_2015$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2015 <- lapply(output, crop_fun)
+
+Terra_2016 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2016")%>%
+  split_lists()
+Terra_2016 <- list(var1 = Terra_2016$'TRUE', var2 = Terra_2016$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2016$var1)){
+  output[[i]] <- merge(Terra_2016$var1[[i]], Terra_2016$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2016 <- lapply(output, crop_fun)
+
+Terra_2017 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2017")%>%
+  split_lists()
+Terra_2017 <- list(var1 = Terra_2017$'TRUE', var2 = Terra_2017$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2017$var1)){
+  output[[i]] <- merge(Terra_2017$var1[[i]], Terra_2017$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2017 <- lapply(output, crop_fun)
+
+Terra_2018 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2018")%>%
+  split_lists()
+Terra_2018 <- list(var1 = Terra_2018$'TRUE', var2 = Terra_2018$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2018$var1)){
+  output[[i]] <- merge(Terra_2018$var1[[i]], Terra_2018$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2018 <- lapply(output, crop_fun)
+
+Terra_2019 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Terra_2000_2018/2019")%>%
+  split_lists()
+Terra_2019 <- list(var1 = Terra_2019$'TRUE', var2 = Terra_2019$'FALSE')
+output <- list()
+for(i in 1:length(Terra_2019$var1)){
+  output[[i]] <- merge(Terra_2019$var1[[i]], Terra_2019$var2[[i]], fun = min, tolerance = 0.5)
+}
+Terra_2019 <- lapply(output, crop_fun)
+
+
+###############################################################################################
+# 2003- 2019 Aqua 
+###############################################################################################
+Aqua_2003 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2003")%>%
+  split_lists()
+Aqua_2003 <- list(var1 = Aqua_2003$'TRUE', var2 = Aqua_2003$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2003$var1)){
+  output[[i]] <- merge(Aqua_2003$var1[[i]], Aqua_2003$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2003 <- lapply(output, crop_fun)
+
+Aqua_2004 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2004")%>%
+  split_lists()
+Aqua_2004 <- list(var1=Aqua_2004$'TRUE', var2 = Aqua_2004$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2004$var1)){
+  output[[i]] <- merge(Aqua_2004$var1[[i]], Aqua_2004$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2004 <- lapply(output, crop_fun)
+
+Aqua_2005 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2005")%>%
+  split_lists()
+Aqua_2005 <- list(var1=Aqua_2005$'TRUE', var2 = Aqua_2005$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2005$var1)){
+  output[[i]] <- merge(Aqua_2005$var1[[i]], Aqua_2005$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2005 <- lapply(output, crop_fun)
+
+Aqua_2006 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2006")%>%
+  split_lists()
+Aqua_2006 <- list(var1=Aqua_2006$'TRUE', var2 = Aqua_2006$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2006$var1)){
+  output[[i]] <- merge(Aqua_2006$var1[[i]], Aqua_2006$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2006 <- lapply(output, crop_fun)
+
+Aqua_2007 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2007")%>%
+  split_lists()
+Aqua_2007 <- list(var1=Aqua_2007$'TRUE', var2 = Aqua_2007$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2007$var1)){
+  output[[i]] <- merge(Aqua_2007$var1[[i]], Aqua_2007$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2007 <- lapply(output, crop_fun)
+
+Aqua_2008<- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2008")%>%
+  split_lists()
+Aqua_2008 <- list(var1=Aqua_2008$'TRUE', var2 = Aqua_2008$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2008$var1)){
+  output[[i]] <- merge(Aqua_2008$var1[[i]], Aqua_2008$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2008 <- lapply(output, crop_fun)
+
+Aqua_2009 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2009")%>%
+  split_lists()
+Aqua_2009 <- list(var1=Aqua_2009$'TRUE', var2 = Aqua_2009$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2009$var1)){
+  output[[i]] <- merge(Aqua_2009$var1[[i]], Aqua_2009$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2009 <- lapply(output, crop_fun)
+
+Aqua_2010 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2010")%>%
+  split_lists()
+Aqua_2010 <- list(var1=Aqua_2010$'TRUE', var2 = Aqua_2010$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2010$var1)){
+  output[[i]] <- merge(Aqua_2010$var1[[i]], Aqua_2010$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2010 <- lapply(output, crop_fun)
+
+Aqua_2011 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2011")%>%
+  split_lists()
+Aqua_2011 <- list(var1=Aqua_2011$'TRUE', var2 = Aqua_2011$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2011$var1)){
+  output[[i]] <- merge(Aqua_2011$var1[[i]], Aqua_2011$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2011 <- lapply(output, crop_fun)
+
+Aqua_2012 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2012")%>%
+  split_lists()
+Aqua_2012 <- list(var1=Aqua_2012$'TRUE', var2 = Aqua_2012$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2012$var1)){
+  output[[i]] <- merge(Aqua_2012$var1[[i]], Aqua_2012$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2012 <- lapply(output, crop_fun)
+
+Aqua_2013 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2013")%>%
+  split_lists()
+Aqua_2013 <- list(var1=Aqua_2013$'TRUE', var2 = Aqua_2013$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2013$var1)){
+  output[[i]] <- merge(Aqua_2013$var1[[i]], Aqua_2013$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2013 <- lapply(output, crop_fun)
+
+Aqua_2014 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2014")%>%
+  split_lists()
+Aqua_2014 <- list(var1=Aqua_2014$'TRUE', var2 = Aqua_2014$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2014$var1)){
+  output[[i]] <- merge(Aqua_2014$var1[[i]], Aqua_2014$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2014 <- lapply(output, crop_fun)
+
+Aqua_2015 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2015")%>%
+  split_lists()
+Aqua_2015 <- list(var1=Aqua_2015$'TRUE', var2 = Aqua_2015$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2015$var1)){
+  output[[i]] <- merge(Aqua_2015$var1[[i]], Aqua_2015$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2015 <- lapply(output, crop_fun)
+
+Aqua_2016 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2016")%>%
+  split_lists()
+Aqua_2016 <- list(var1=Aqua_2016$'TRUE', var2 = Aqua_2016$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2016$var1)){
+  output[[i]] <- merge(Aqua_2016$var1[[i]], Aqua_2016$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2016 <- lapply(output, crop_fun)
+
+Aqua_2017 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2017")%>%
+  split_lists()
+Aqua_2017 <- list(var1=Aqua_2017$'TRUE', var2 = Aqua_2017$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2017$var1)){
+  output[[i]] <- merge(Aqua_2017$var1[[i]], Aqua_2017$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2017 <- lapply(output, crop_fun)
+
+Aqua_2018 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2018")%>%
+  split_lists()
+Aqua_2018 <- list(var1=Aqua_2018$'TRUE', var2 = Aqua_2018$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2018$var1)){
+  output[[i]] <- merge(Aqua_2018$var1[[i]], Aqua_2018$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2018 <- lapply(output, crop_fun)
+
+Aqua_2019 <- MODIS_OPEN(path = "D:/LaCie/Thesis Data/MODIS/Aqua_2002_2018/2019")%>%
+  split_lists()
+Aqua_2019 <- list(var1=Aqua_2019$'TRUE', var2 = Aqua_2019$'FALSE')
+output <- list()
+for(i in 1:length(Aqua_2019$var1)){
+  output[[i]] <- merge(Aqua_2019$var1[[i]], Aqua_2019$var2[[i]], fun = min, tolerance = 0.5)
+}
+Aqua_2019 <- lapply(output, crop_fun)
+###############################################################################################
+# 2012-2019 VIIRS
+###############################################################################################
+VIIRS_2012 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2012_resam")%>%
+  split_lists()
+VIIRS_2012 <- list(var1 = VIIRS_2012$'TRUE', var2 = VIIRS_2012$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2012$var2)){
+  output[[i]] <- merge(VIIRS_2012$var1[[i]], VIIRS_2012$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2012 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2013 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2013_resam")%>%
+  split_lists()
+VIIRS_2013 <- list(var1 = VIIRS_2013$'TRUE', var2 = VIIRS_2013$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2013$var1)){
+  output[[i]] <- merge(VIIRS_2013$var1[[i]], VIIRS_2013$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2013 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2014 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2014_resam")%>%
+  split_lists()
+VIIRS_2014 <- list(var1 = VIIRS_2014$'TRUE', var2 = VIIRS_2014$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2014$var1)){
+  output[[i]] <- merge(VIIRS_2014$var1[[i]], VIIRS_2014$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2014 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2015 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2015_resam")%>%
+  split_lists()
+VIIRS_2015 <- list(var1 = VIIRS_2015$'TRUE', var2 = VIIRS_2015$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2015$var1)){
+  output[[i]] <- merge(VIIRS_2015$var1[[i]], VIIRS_2015$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2015 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2016 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2016_resam")%>%
+  split_lists()
+VIIRS_2016 <- list(var1 = VIIRS_2016$'TRUE', var2 = VIIRS_2016$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2016$var1)){
+  output[[i]] <- merge(VIIRS_2016$var1[[i]], VIIRS_2016$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2016 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2017 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2017_resam")%>%
+  split_lists()
+VIIRS_2017 <- list(var1 = VIIRS_2017$'TRUE', var2 = VIIRS_2017$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2017$var1)){
+  output[[i]] <- merge(VIIRS_2017$var1[[i]], VIIRS_2017$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2017 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2018 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2018_resam")%>%
+  split_lists()
+VIIRS_2018 <- list(var1 = VIIRS_2018$'TRUE', var2 = VIIRS_2018$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2018$var1)){
+  output[[i]] <- merge(VIIRS_2018$var1[[i]], VIIRS_2018$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2018 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+VIIRS_2019 <- VIIRS_OPEN("D:/LaCie/Thesis Data/MODIS/VIIRS_2012_2018/2019_resam")%>%
+  split_lists()
+VIIRS_2019 <- list(var1 = VIIRS_2019$'TRUE', var2 = VIIRS_2019$'FALSE')
+output <- list()
+for(i in 1:length(VIIRS_2019$var1)){
+  output[[i]] <- merge(VIIRS_2019$var1[[i]], VIIRS_2019$var2[[i]], fun = min, tolerance = 0.5)
+}
+VIIRS_2019 <- lapply(output, crop_fun)%>%
+  re_extent()
+
+###############################################################################################
