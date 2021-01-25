@@ -1,0 +1,879 @@
+###############################################################################################
+# landsat-8 OLI script for accuracy assessment 
+###############################################################################################
+# Uploading MODIS landcover product MCD12Q1
+###############################################################################################
+#LC1 <- raster("D:/LaCie/Thesis Data/Landcover/output1/MCD12Q1.A2018001.h10v04.006.2019199224423.tif")
+#LC2 <- raster("D:/LaCie/Thesis Data/Landcover/output1/MCD12Q1.A2018001.h10v03.006.2019199210215.tif")
+
+#LC_2018 <- merge(LC1, LC2, fun = min, tolerance = 0.5)%>%
+#  crop_fun()
+
+LC_2017 <- raster("C:/Users/Julia/Desktop/Thesis Data/Landcover/2004-2019/MCD12Q1.006_LC_Type1_doy2017001_aid0001.tif")%>%
+  resample_reproject_L()
+LC_2018 <- raster("C:/Users/Julia/Desktop/Thesis Data/Landcover/2004-2019/MCD12Q1.006_LC_Type1_doy2018001_aid0001.tif")
+# Aggregating landcover types for forests with >60% forest coverage >2m tall
+# Aggregating all forest classes into 1, shrublands with over 60% covergae between 1-2m as 2 
+# 3 is savannas, tree cover between 10-60%, >2m 
+# 4 is grasslands and wetlands annual vegetation 10% and less than 2m and cropland from 40-60%
+# 5 Urban areas, 30% impervious surfaces 
+# 6 Permenant snow
+# 7 is barren land and 8 is water bodies 
+aggregate_LC <- function(landcover){
+  landcover[landcover@data@values==2] <- 1
+  landcover[landcover@data@values==3] <- 1
+  landcover[landcover@data@values==4] <- 1
+  landcover[landcover@data@values==5] <- 1
+  landcover[landcover@data@values==6] <- 2
+  landcover[landcover@data@values==7] <- 2
+  landcover[landcover@data@values==8] <- 3
+  landcover[landcover@data@values==9] <- 3
+  landcover[landcover@data@values==10] <- 4
+  landcover[landcover@data@values==11] <- 4
+  landcover[landcover@data@values==12] <- 4
+  landcover[landcover@data@values==13] <- 5
+  landcover[landcover@data@values==14] <- 4
+  landcover[landcover@data@values==15] <- 6
+  landcover[landcover@data@values==16] <- 7
+  landcover[landcover@data@values==17] <- 8
+  return(landcover)
+}
+
+options(stringsAsFactors = FALSE)
+###############################################################################################
+# This function will change the range of values in the landsat images in order to include only the valid range 
+valid_range <- function(landsat_images){
+  for(i in 1:length(landsat_images)){
+    landsat_images[[i]][landsat_images[[i]] > 16000 | landsat_images[[i]] < 0] <- NA
+  }
+  return(landsat_images)
+}
+
+# This function opens the landsat images from the path specified and removes the layers that are not required for the snowmap algorithm 
+landsat_open <- function(landsat_path){
+  landsat <- list.files(path = landsat_path, pattern = ".tif", full.names = TRUE, recursive = F)
+  landsat <- landsat[!grepl("pixel_qa", landsat)]
+  landsat <- landsat[!grepl("radsat_qa", landsat)]
+  landsat <- landsat[!grepl("aerosol", landsat)]
+  landsat <- lapply(landsat, raster)
+}
+
+# This function is used to pull the Fmask out of the QA layer 
+landsat_mask <- function(QA_path){
+  QA <- raster(QA_path)
+  cloud <- classifyQA(QA, type = "cloud", sensor = "OLI", legacy = "collection1")
+  water <- classifyQA(QA, type = "water", sensor = "OLI", legacy = "collection1")
+  qa_mask <- cloud + water
+  return(qa_mask)
+}
+
+# crop function
+crop_fun <- function(raster_to_crop){
+  cropped <- crop(raster_to_crop, Thompson_Okanagan_Region_SHP, subset = TRUE)
+  mask(cropped, Thompson_Okanagan_Region_SHP)
+}
+
+# This function will reproject to the same projection as the Images
+# The res and crs arguments must be changed to reflect the images that are available in the environment
+resample_reproject_L <- function(landsat){
+  resampled_land <- projectRaster(landsat, res = res(SL_2019[[23]]), crs = crs(SL_2019[[23]]), method = "ngb")
+  return(resampled_land)
+}
+
+###############################################################################################
+# NDSI, NDVI and NDFSI for Landsat-8 OLI
+SI <- function(img, v, s){
+  bv <- img[[v]]
+  bs <- img[[s]]
+  si <- (bv - bs)/(bv + bs)
+  return(si)
+}
+
+VI <- function(img, v, i){
+  bv <- img[[v]]
+  bi <- img[[i]]
+  vi <- (bv-bi)/(bv+bi)
+  return(vi)
+}
+
+FSI <- function(img, n, s){
+  bn <- img[[n]]
+  bs <- img[[s]]
+  fsi <- (bn-bs)/(bn+bs)
+  return(fsi)
+}
+###############################################################################################
+
+# algorithm for snow dedection using only the NDSI values and NIR bands 
+snow1 <- function(ndsi, image){
+  snow <- ndsi > 0.4 & image[[5]] > 1294.7 & image[[3]] > 1324.4 & image[[6]] < 5884.65
+  return(snow)
+}
+
+# algorithm using the NDVI, NDSI and NDFSI as well as the NIR band values 
+snow2 <- function(image, ndsi, ndfsi, ndvi){
+  snow <- (ndsi > 0.4 & image[[5]] > 1294.7 & image[[3]] > 1324.4 & image[[6]] < 5884.65)
+  snow_nd <- (ndsi <0.4 & ndfsi > 0.4 & ndvi < 0.6)
+  final <- snow+snow_nd
+  return(snow)
+}
+
+# Opening the landcover file and aggregating landcover classes using function above 
+# Must resample using the Landsat image, specify one from your environment
+LC_10 <- raster("E:/Thesis/Thesis Data/Landcover/2004-2019/MCD12Q1.006_LC_Type1_doy2010001_aid0001.tif")%>%
+  aggregate_LC()%>%
+  resample(april_1[[1]], method = "ngb")
+
+###############################################################################################
+# In order to understand the differences between NDFSI and NDSI in terms of capturing snow values
+# we use training site collected via QGIS 
+
+# function to give data frame for each layer of the NDVI and NDFSI values of each pixel 
+tables <- function(ndfs, ndv, nds){
+  stack <- stack(ndfs, ndv, nds)
+  df <- as.data.frame(rasterToPoints(stack))
+  colnames(df) <- c("longitude", "latitude", "NDFSI", "NDVI", "NDSI")
+  return(df)
+}
+
+# function to crop each training site to each index to test the values of each 
+make_tables <- function(training_s, training_f, training_fs, ndvi, ndsi, ndfsi){
+  ndvi_snow <- crop(ndvi, training_s)
+  ndvi_forest <- crop(ndvi, training_f)
+  ndvi_forestsnow <- crop(ndvi, training_fs)
+  
+  ndfsi_snow <- crop(ndfsi, training_s)
+  ndfsi_forest <- crop(ndfsi, training_f)
+  ndfsi_forestsnow <- crop(ndfsi, training_fs)
+  
+  ndsi_snow <- crop(ndsi, training_s)
+  ndsi_forest <- crop(ndsi, training_f)
+  ndsi_forestsnow <- crop(ndsi, training_fs)
+  
+  snow_df <- tables(ndfs = ndfsi_snow, ndv = ndvi_snow, nds = ndsi_snow)%>%
+    cbind(Landcover = "Snow")
+  forest_df <- tables(ndfs = ndfsi_forest, ndv = ndvi_forest, nds = ndsi_forest)%>%
+    cbind(Landcover = "Forest")
+  forest_snow_df <- tables(ndfs = ndfsi_forestsnow, ndv = ndvi_forestsnow, nds = ndsi_forestsnow)%>%
+    cbind(Landcover = "Forest Snow")
+  
+  full_data <- rbind(snow_df, forest_df)%>%
+    rbind(forest_snow_df)%>%
+    na.omit()
+  
+  return(full_data)
+}
+
+sep_tables <- function(training_site, index){
+  crop <- crop(index, training_site)
+  df <- as.data.frame(rasterToPoints(crop))
+  colnames(df) <- c("longitude", "latitude", "Index")
+  return(df)
+}
+
+
+###############################################################################################
+# training sites seperate shape files
+# Each of these blocks of code go through adding the snow, forest and forest snow throughout the specified dates
+# these shapefiles are then used to retrieve the specific NDSI, NDFSI and NDVI values for these given shapefiles
+# these are then make into tables using the make tables function for each of the dates
+###############################################################################################
+# April 20th 2015
+snow_1 <- readOGR("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1/shp/snow.shp")
+forest_1 <- readOGR("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1/shp/forest1.shp")
+forestsnow_1 <- readOGR("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1/shp/foressn.shp")
+
+april_20 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1")%>%
+  valid_range()
+
+ndsi_20 <-SI(april_20, 3, 6)
+ndvi_20 <-VI(april_20, 5, 4)
+ndfsi_20 <- FSI(april_20, 5, 6)
+
+april_20_df <- make_tables(training_s = snow_1, training_f = forest_1, training_fs = forestsnow_1,
+                           ndvi = ndvi_20, ndfsi = ndfsi_20, ndsi = ndsi_20)
+###############################################################################################
+# May 13th 2015
+snow_2 <- readOGR("E:/Thesis/Thesis Data/ROI/may/13/snow.shp")
+forest_2 <- readOGR("E:/Thesis/Thesis Data/ROI/may/13/forest.shp")
+forestsnow_2 <- readOGR("E:/Thesis/Thesis Data/ROI/may/13/forest_snow.shp")
+
+may_13 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/may_13/reproject/1")%>%
+  valid_range()
+ndsi_13 <- SI(may_13,3,6)
+ndvi_13 <- VI(may_13, 5,4)
+ndfsi_13 <- FSI(may_13, 5,6)
+
+may_13_df <- make_tables(training_s = snow_2, training_f = forest_2, training_fs = forestsnow_2,
+                         ndvi = ndvi_13, ndfsi = ndfsi_13, ndsi = ndsi_13)
+###############################################################################################
+# May 22nd 2015
+snow_3 <- readOGR("E:/Thesis/Thesis Data/ROI/may/22/snow.shp")
+forest_3 <- readOGR("E:/Thesis/Thesis Data/ROI/may/22/forest.shp")
+forestsnow_3 <- readOGR("E:/Thesis/Thesis Data/ROI/may/22/forest_snow.shp")
+
+may_22 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/may_22/reproject/2")%>%
+  valid_range()
+ndsi_22 <- SI(may_22,3,6)
+ndvi_22 <- VI(may_22, 5,4)
+ndfsi_22 <- FSI(may_22, 5,6)
+
+may_22_df <- make_tables(training_s = snow_3, training_f = forest_3, training_fs = forestsnow_3,
+                         ndvi = ndvi_22, ndfsi = ndfsi_22, ndsi = ndsi_22)
+###############################################################################################
+# We can then plot each of the 4 image values of NDFSI NDVI and NDSI in comparison to one another
+# throughout the season to see how the values change
+# summary(april_20_df) <-- can be used to retrieve the basic statistics and distribution of values for 
+# each of the images we used to test 
+###############################################################################################
+ggplot(april_20_df, aes(x = NDSI, y = NDVI, col = Landcover)) +
+  geom_point(size = 1)+
+  ggtitle("NDSI-NDVI values for snow covered and snow free forests, April 20th 2015")+
+  scale_color_manual(values = c("#8DA0CB", "#A6D854","#66C2A5"))+
+  scale_x_continuous(breaks = c(-0.4,-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1))+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(axis.text = element_text(size = 16))+
+  theme(text = element_text(size = 16))
+
+ggplot(may_13_df, aes(x = NDSI, y = NDVI, col = Landcover)) +
+  geom_point(size = 1)+
+  ggtitle("NDSI-NDVI values for pure snow, snow covered and snow free forests, May 13th 2015")+
+  scale_color_manual(values = c("#8DA0CB", "#A6D854","#66C2A5"))+
+  scale_x_continuous(breaks = c(-0.4,-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1))+
+  theme(plot.title = element_text(hjust = 0.5, size = 16))+
+  theme(axis.text = element_text(size = 16))+
+  theme(text = element_text(size = 16))
+
+ggplot(may_22_df, aes(x = NDSI, y = NDVI, col = Landcover)) +
+  geom_point(size = 1)+
+  ggtitle("NDSI-NDVI values for snow covered and snow free forests, May 22nd 2015")+
+  scale_color_manual(values = c("#8DA0CB", "#A6D854","#66C2A5"))+
+  scale_x_continuous(breaks = c(-0.4,-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1))+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(axis.text = element_text(size = 16))+
+  theme(text = element_text(size = 16))
+
+ggplot(june_7_df, aes(x = NDSI, y = NDVI, col = Landcover)) +
+  geom_point(size = 1)+
+  ggtitle("NDSI-NDVI values for snow covered and snow free forests, June 7th 2015")+
+  scale_color_manual(values = c("#8DA0CB", "#A6D854","#66C2A5"))+
+  scale_x_continuous(breaks = c(-0.4,-0.2, 0, 0.2, 0.4, 0.6, 0.8, 1))+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme(axis.text = element_text(size = 16))+
+  theme(text = element_text(size = 16))
+
+
+###############################################################################################
+# Below are each of the dates used for validation/accuracy 
+# First they are opened a contained to valid ranges only, then they snow algorithm is applied
+# Then the masks will be opened and applied
+# They are then resampled and merged (if applicable)
+# And finally cropped to the study region
+###############################################################################################
+# April 21, 2013 
+april_21_13 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2013/april_21/reproject/1")%>%
+  valid_range()
+april_21_13 <- snow2(image = april_21_13, ndsi = SI(april_21_13, 3,6), ndfsi = FSI(april_21_13, 5,6), ndvi = VI(april_21_13, 5,4))
+APCL <-  landsat_mask("E:/Thesis/Thesis Data/Landsat8/2013/april_21/reproject/1/LC08_L1TP_047023_20130421_20170310_01_T1_pixel_qa.tif")
+april_21 <- mask(april_21_13, APCL, inverse = TRUE)%>%
+  crop(Thompson_Okanagan_Region_SHP)%>%
+  resample(SL_2012[[23]], method = "ngb")
+###############################################################################################
+# April 1 2014
+april_1_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2014/april_1/reproject/1")%>%
+  valid_range()
+april_1_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2014/april_1/reproject/2")%>%
+  valid_range()
+
+APCL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2014/april_1/reproject/1/LC08_L1TP_046023_20140401_20170307_01_T1_pixel_qa.tif")
+APCL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2014/april_1/reproject/2/LC08_L1TP_046024_20140401_20170307_01_T1_pixel_qa.tif")
+
+one <- snow2(image = april_1_1, ndsi = SI(april_1_1, 3,6), ndfsi = FSI(april_1_1, 5,6), ndvi = VI(april_1_1, 5,4))%>%
+  mask(APCL, inverse = T)
+two <- snow2(image = april_1_2, ndsi = SI(april_1_2, 3,6), ndfsi = FSI(april_1_2, 5,6), ndvi = VI(april_1_2, 5,4))%>%
+  mask(APCL2, inverse =T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+april_1_14 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SF_2013[[1]], method = "ngb")
+###############################################################################################
+# April 20 2015 
+april_20_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1")%>%
+  valid_range()
+april_20_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/2")%>%
+  valid_range()
+
+APCL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/1/LC08_L1TP_046024_20150420_20170228_01_T1_pixel_qa.tif")
+APCL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/april_20/reproject/2/LC08_L1TP_046025_20150420_20170228_01_T1_pixel_qa.tif")
+
+one <- snow2(image = april_20_1, ndsi = SI(april_20_1, 3,6), ndfsi = FSI(april_20_1, 5,6), ndvi = VI(april_20_1, 5,4))%>%
+  mask(APCL, inverse = T)
+two <- snow2(image = april_20_2, ndsi = SI(april_20_2, 3,6), ndfsi = FSI(april_20_2, 5,6), ndvi = VI(april_20_2, 5,4))%>%
+  mask(APCL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+april_20_15 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2013[[1]], method = "ngb")
+###############################################################################################
+# May 13th 2015
+may_13 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/may_13/reproject/1")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/may_13/reproject/1/LC08_L1TP_047023_20150513_20170301_01_T1_pixel_qa.tif")  
+may_13 <- snow2(image = may_13, ndsi = SI(may_13, 3,6), ndfsi = FSI(may_13, 5,6), ndvi = VI(may_13, 5,4))%>%
+  mask(CL, inverse = T)
+
+may_13 <- raster::resample(may_13, SL_2013[[42]], method = "ngb")%>%
+  crop_fun()
+###############################################################################################
+# May 22nd 2015
+may_22_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/may_22/reproject/1")%>%
+  valid_range()
+may_22_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/may_22/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/may_22/reproject/1/LC08_L1TP_046023_20150522_20170228_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/may_22/reproject/2/LC08_L1TP_046024_20150522_20170228_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_22_1, ndsi = SI(may_22_1, 3,6), ndfsi = FSI(may_22_1, 5,6), ndvi = VI(may_22_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_22_2, ndsi = SI(may_22_2, 3,6), ndfsi = FSI(may_22_2, 5, 6), ndvi = VI(may_22_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_22 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2019[[1]], method = "ngb")
+###############################################################################################
+# June 7th 2015
+june_7_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/june_7/reproject/1")%>%
+  valid_range()
+june_7_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2015/june_7/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/june_7/reproject/1/LC08_L1TP_046024_20150607_20170226_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2015/june_7/reproject/2/LC08_L1TP_046025_20150607_20170226_01_T1_pixel_qa.tif")
+
+one <- snow2(image = june_7_1, ndsi = SI(june_7_1, 3,6), ndfsi = FSI(june_7_1, 5,6), ndvi = VI(june_7_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = june_7_2, ndsi = SI(june_7_2, 3,6), ndfsi = FSI(june_7_2, 5, 6), ndvi = VI(june_7_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+june_7 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2014[[1]], method = "ngb")
+###############################################################################################
+# May 1st 2016
+
+may_1_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2016/may_1/reproject/1")%>%
+  valid_range()
+may_1_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2016/may_1/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2016/may_1/reproject/1/LC08_L1TP_045024_20160501_20170223_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2016/may_1/reproject/2/LC08_L1TP_045025_20160501_20170223_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_1_1, ndsi = SI(may_1_1, 3,6), ndfsi = FSI(may_1_1, 5,6), ndvi = VI(may_1_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_1_2, ndsi = SI(may_1_2, 3,6), ndfsi = FSI(may_1_2, 5, 6), ndvi = VI(may_1_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_1 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2014[[1]], method = "ngb")
+
+###############################################################################################
+# May 15th 2016 
+
+may_15_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2016/may_15/reproject/1")%>%
+  valid_range()
+may_15_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2016/may_15/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2016/may_15/reproject/1/LC08_L1TP_047023_20160515_20170223_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2016/may_15/reproject/2/LC08_L1TP_047024_20160515_20170223_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_15_1, ndsi = SI(may_15_1, 3,6), ndfsi = FSI(may_15_1, 5,6), ndvi = VI(may_15_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_15_2, ndsi = SI(may_15_2, 3,6), ndfsi = FSI(may_15_2, 5, 6), ndvi = VI(may_15_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_15 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2014[[1]], method = "ngb")
+###############################################################################################
+# May 20th 2017
+
+may_20_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_20/reproject/1")%>%
+  valid_range()
+may_20_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_20/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_20/reproject/1/LC08_L1TP_045024_20170520_20170526_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_20/reproject/2/LC08_L1TP_045025_20170520_20170525_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_20_1, ndsi = SI(may_20_1, 3,6), ndfsi = FSI(may_20_1, 5,6), ndvi = VI(may_20_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_20_2, ndsi = SI(may_20_2, 3,6), ndfsi = FSI(may_20_2, 5, 6), ndvi = VI(may_20_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_20 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2014[[1]], method = "ngb")
+
+###############################################################################################
+# May 27th 2017
+
+may_27_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/1")%>%
+  valid_range()
+may_27_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/2")%>%
+  valid_range()
+may_27_3 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/3")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/1/LC08_L1TP_046023_20170527_20170615_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/2/LC08_L1TP_046024_20170527_20170615_01_T1_pixel_qa.tif")
+CL3 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_27/reproject/3/LC08_L1TP_046025_20170527_20170615_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_27_1, ndsi = SI(may_27_1, 3,6), ndfsi = FSI(may_27_1, 5,6), ndvi = VI(may_27_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_27_2, ndsi = SI(may_27_2, 3,6), ndfsi = FSI(may_27_2, 5, 6), ndvi = VI(may_27_2, 5,4))%>%
+  mask(CL2, inverse = T)
+three <- snow2(image = may_27_3, ndsi = SI(may_27_3, 3,6), ndfsi = FSI(may_27_3, 5,6), ndvi = VI(may_27_3, 5,4))%>%
+  mask(CL3, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+three <- crop_fun(two)%>%resample_reproject_L()
+
+may_27 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  merge(three, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2018[[1]], method = "ngb")
+
+###############################################################################################
+# may 29th 2016
+may_29_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_29/reproject/1")%>%
+  valid_range()
+may_29_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/may_29/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_29/reproject/1/LC08_L1TP_044024_20170529_20170615_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/may_29/reproject/2/LC08_L1TP_044025_20170529_20170615_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_29_1, ndsi = SI(may_29_1, 3,6), ndfsi = FSI(may_29_1, 5,6), ndvi = VI(may_29_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_29_2, ndsi = SI(may_29_2, 3,6), ndfsi = FSI(may_29_2, 5, 6), ndvi = VI(may_29_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_29 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2018[[1]], method = "ngb")
+###############################################################################################
+# June 5 2017 
+
+june_5 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2017/june_5/reproject/1")%>%
+  valid_range()
+june_5 <- snow2(image = june_5, ndsi = SI(june_5, 3,6), ndfsi = FSI(june_5, 5,6), ndvi = VI(june_5, 5,4))
+CL <-  landsat_mask("E:/Thesis/Thesis Data/Landsat8/2017/june_5/reproject/1/LC08_L1TP_045025_20170605_20170616_01_T1_pixel_qa.tif")
+june_5 <- mask(june_5, CL, inverse = TRUE)%>%
+  crop(Thompson_Okanagan_Region_SHP)%>%
+  raster::resample(SL_2018[[23]], method = "ngb")
+###############################################################################################
+# May 14 2018
+
+may_14_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/1")%>%
+  valid_range()
+may_14_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/2")%>%
+  valid_range()
+may_14_3 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/3")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/1/LC08_L1TP_046023_20180514_20180604_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/2/LC08_L1TP_046024_20180514_20180604_01_T1_pixel_qa.tif")
+CL3 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/may_14/reproject/3/LC08_L1TP_046025_20180514_20180604_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_14_1, ndsi = SI(may_14_1, 3,6), ndfsi = FSI(may_14_1, 5,6), ndvi = VI(may_14_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_14_2, ndsi = SI(may_14_2, 3,6), ndfsi = FSI(may_14_2, 5, 6), ndvi = VI(may_14_2, 5,4))%>%
+  mask(CL2, inverse = T)
+three <- snow2(image = may_14_3, ndsi = SI(may_14_3, 3,6), ndfsi = FSI(may_14_3, 5,6), ndvi = VI(may_14_3, 5,4))%>%
+  mask(CL3, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+three <- crop_fun(three)%>%resample_reproject_L()
+
+may_14 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  merge(three, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2018[[1]], method = "ngb")
+
+###############################################################################################
+# May 23th 2018
+
+may_23_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/may_23/reproject/1")%>%
+  valid_range()
+may_23_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/may_23/reproject/2")%>%
+  valid_range()
+
+CL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/may_23/reproject/1/LC08_L1TP_045024_20180523_20180605_01_T1_pixel_qa.tif")
+CL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/may_23/reproject/2/LC08_L1TP_045025_20180523_20180605_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_23_1, ndsi = SI(may_23_1, 3,6), ndfsi = FSI(may_23_1, 5,6), ndvi = VI(may_23_1, 5,4))%>%
+  mask(CL, inverse = T)
+two <- snow2(image = may_23_2, ndsi = SI(may_23_2, 3,6), ndfsi = FSI(may_23_2, 5, 6), ndvi = VI(may_23_2, 5,4))%>%
+  mask(CL2, inverse = T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_23 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2018[[1]], method = "ngb")
+
+###############################################################################################
+# June 24 2018
+june_24 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2018/june_24/reproject/1")%>%
+  valid_range()
+june_24 <- snow2(image = june_24, ndsi = SI(june_24, 3,6), ndfsi = FSI(june_24, 5,6), ndvi = VI(june_24, 5,4))
+CL <-  landsat_mask("E:/Thesis/Thesis Data/Landsat8/2018/june_24/reproject/1/LC08_L1TP_045025_20180624_20180704_01_T1_pixel_qa.tif")
+june_24 <- mask(june_24, CL, inverse = TRUE)%>%
+  crop(Thompson_Okanagan_Region_SHP)%>%
+  raster::resample(SL_2018[[23]], method = "ngb")
+
+###############################################################################################
+# April 8th 2019 
+april_8 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2019/april_8/reproject/1")%>%
+  valid_range()
+april_8 <- snow2(image = april_8, ndsi = SI(april_8, 3,6), ndfsi = FSI(april_8, 5,6), ndvi = VI(april_8, 5,4))
+CL <-  landsat_mask("E:/Thesis/Thesis Data/Landsat8/2019/april_8/reproject/1/LC08_L1TP_045024_20190408_20190422_01_T1_pixel_qa.tif")
+april_8 <- mask(april_8, CL, inverse = TRUE)%>%
+  crop(Thompson_Okanagan_Region_SHP)%>%
+  raster::resample(SL_2018[[23]], method = "ngb")
+
+###############################################################################################
+# may 10 2019
+may_10_1 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2019/may_10/reproject/1")%>%
+  valid_range()
+may_10_2 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2019/may_10/reproject/2")%>%
+  valid_range()
+
+APCL <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2019/may_10/reproject/1/LC08_L1TP_045024_20190510_20190521_01_T1_pixel_qa.tif")
+APCL2 <- landsat_mask("E:/Thesis/Thesis Data/Landsat8/2019/may_10/reproject/2/LC08_L1TP_045025_20190510_20190521_01_T1_pixel_qa.tif")
+
+one <- snow2(image = may_10_1, ndsi = SI(may_10_1, 3,6), ndfsi = FSI(may_10_1, 5,6), ndvi = VI(may_10_1, 5,4))%>%
+  mask(APCL, inverse = T)
+two <- snow2(image = may_10_2, ndsi = SI(may_10_2, 3,6), ndfsi = FSI(may_10_2, 5,6), ndvi = VI(may_10_2, 5,4))%>%
+  mask(APCL2, inverse =T)
+
+one <- crop_fun(one)%>%resample_reproject_L()
+two <- crop_fun(two)%>%resample_reproject_L()
+
+may_10 <- merge(one, two, fun = min, tolerance = 0.5)%>%
+  raster::resample(SL_2018[[1]], method = "ngb")
+
+###############################################################################################
+# May 26 2019 
+may_26 <- landsat_open("E:/Thesis/Thesis Data/Landsat8/2019/may_26/reproject/1")%>%
+  valid_range()
+may_26 <- snow2(image = may_26, ndsi = SI(may_26, 3,6), ndfsi = FSI(may_26, 5,6), ndvi = VI(may_26, 5,4))
+CL <-  landsat_mask("E:/Thesis/Thesis Data/Landsat8/2019/may_26/reproject/1/LC08_L1TP_045024_20190526_20190605_01_T1_pixel_qa.tif")
+may_26 <- mask(may_26, CL, inverse = TRUE)%>%
+  crop(Thompson_Okanagan_Region_SHP)%>%
+  raster::resample(SL_2018[[23]], method = "ngb")
+
+
+###############################################################################################
+# Have to create new tables for landsat images and ATD and combined images
+# Applying table function to each days tiles and creating tables of each layer
+###############################################################################################
+land_ATD <- function(ATD, Landsat, LC){
+  stack <- stack(ATD, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- extract(stack, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "ATD", "Landsat", "Landcover")
+  return(raster_values)
+}
+land_com <- function(Combined, Landsat, LC){
+  stack <- stack(Combined, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- extract(stack, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "Combined", "Landsat", "Landcover")
+  return(raster_values)
+}
+land_Terra <- function(Terra, Landsat, LC){
+  Terra <- crop(Terra, Landsat)
+  stack <- stack(Terra, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- extract(stack, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "Terra", "Landsat", "Landcover")
+  return(raster_values)
+}
+land_Aqua <- function(Aqua, Landsat, LC){
+  stack <- stack(Aqua, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- extract(stack, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "Aqua", "Landsat", "Landcover")
+  return(raster_values)
+}
+land_VIIRS <- function(VIIRS, Landsat, LC){
+  stack <- stack(VIIRS, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- extract(stack, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "VIIRS", "Landsat", "Landcover")
+  return(raster_values)
+}
+
+land_SF<- function(SF, Landsat, LC){
+  stack1 <- stack(SF, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- raster::extract(stack1, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "SF", "Landsat", "Landcover")
+  return(raster_values)
+}
+land_SL<- function(SL, Landsat, LC){
+  stack1 <- stack(SL, Landsat, LC)
+  land_point <- as.data.frame(rasterToPoints(Landsat))
+  coord <- data.frame(longitude = land_point$x, latitude = land_point$y)
+  raster_values <- raster::extract(stack1, coord)
+  raster_values <- cbind(coord, raster_values)
+  raster_values <-as.data.frame(na.omit(raster_values, cols = seq_along(raster_values)))
+  colnames(raster_values) <- c("longitude", "latitude", "SL", "Landsat", "Landcover")
+  return(raster_values)
+}
+###############################################################################################
+# changing values for the fractional snow cover to be considered snow if its over 40% covered
+# also removing all other classes as no snow for comparison to sentinel binary snow map
+###############################################################################################
+change_vals <- function(data_table){
+  data_table$Aqua[data_table$Aqua > 100] <- 0
+  data_table$Aqua[data_table$Aqua < 40] <- 0
+  data_table$Aqua[data_table$Aqua >= 40] <- 1
+  data_table$Terra[data_table$Terra > 100] <- 0
+  data_table$Terra[data_table$Terra < 40] <- 0
+  data_table$Terra[data_table$Terra >= 40] <- 1
+  data_table$VIIRS[data_table$VIIRS > 100] <- 0
+  data_table$VIIRS[data_table$VIIRS < 40] <- 0
+  data_table$VIIRS[data_table$VIIRS >= 40] <- 1
+  data_table$Combined[data_table$Combined > 100] <- 0
+  data_table$Combined[data_table$Combined < 40] <- 0
+  data_table$Combined[data_table$Combined >= 40] <- 1
+  data_table$ATD[data_table$ATD > 100] <- 0
+  data_table$ATD[data_table$ATD < 40] <- 0
+  data_table$ATD[data_table$ATD >= 40] <- 1
+  return(data_table)
+}
+
+ATD_change <- function(data_table){
+  data_table$ATD[data_table$ATD > 100] <- 0
+  data_table$ATD[data_table$ATD < 40] <- 0
+  data_table$ATD[data_table$ATD >= 40] <- 1
+  return(data_table)
+}
+
+Combined_change <- function(data_table){
+  data_table$Combined[data_table$Combined > 100] <- 0
+  data_table$Combined[data_table$Combined < 40] <- 0
+  data_table$Combined[data_table$Combined >= 40] <- 1
+  return(data_table)
+}
+
+Terra_change <- function(data_table){
+  data_table$Terra[data_table$Terra > 100] <- 0
+  data_table$Terra[data_table$Terra < 40] <- 0
+  data_table$Terra[data_table$Terra >= 40] <- 1
+  return(data_table)
+}
+
+Aqua_change <- function(data_table){
+  data_table$Aqua[data_table$Aqua > 100] <- 0
+  data_table$Aqua[data_table$Aqua < 40] <- 0
+  data_table$Aqua[data_table$Aqua >= 40] <- 1
+  return(data_table)
+}
+
+VIIRS_change <- function(data_table){
+  data_table$VIIRS[data_table$VIIRS > 100] <- 0
+  data_table$VIIRS[data_table$VIIRS < 40] <- 0
+  data_table$VIIRS[data_table$VIIRS >= 40] <- 1
+  return(data_table)
+}
+SF_change <- function(data_table){
+  data_table$SF[data_table$SF > 100] <- 0
+  data_table$SF[data_table$SF < 40] <- 0
+  data_table$SF[data_table$SF >= 40] <- 1
+  return(data_table)
+}
+SL_change <- function(data_table){
+  data_table$SF[data_table$SL > 100] <- 0
+  data_table$SF[data_table$SL < 40] <- 0
+  data_table$SF[data_table$SL >= 40] <- 1
+  return(data_table)
+}
+
+###############################################################################################
+# list all the binary tables to apply accuracy stats with lapply
+# The days used must be changed depending on the dataset, because the Terra/Aqua/VIIRS will have two extra days
+# So they will have to be 2 days after the ATD and SL datasets
+# These function essentially take the "make tables" functions for the specified dataset
+# make dfs from these values for the confusion matrices
+###############################################################################################
+
+terra_tb <- land_Terra(Terra = Terra_2019[[58]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  Terra_change()
+aqua_tb <- land_Aqua(Aqua = Aqua_2019[[58]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  Aqua_change()
+viirs_tb<- land_VIIRS(VIIRS = VIIRS_2019[[58]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  VIIRS_change()
+
+tac_tb<- land_com(Combined = Year_2019_TAC[[58]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  Combined_change()
+combined_tb<- land_com(Combined = Year_2019[[58]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  Combined_change()
+
+ATD1<- land_ATD(ATD = ATD_2019[[56]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  ATD_change()
+ATD2 <- land_ATD(ATD = ATD_2019_2[[56]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  ATD_change()
+
+SF <- land_SF(SF = SF_2019[[56]], Landsat = may_26, LC = crop(LC_2018, Thompson_Okanagan_Region_SHP))%>%
+  SF_change()%>%
+  filter(Landcover == 1)
+
+SL <- land_SL(SL = SL_2019[[56]], Landsat = may_26, LC = crop(LC_2017, Thompson_Okanagan_Region_SHP))%>%
+  SL_change()%>%
+  filter(Landcover == 1)
+
+# From these tables we can run this confusion matrix function 
+# This will use the matching values to create accuracy indices
+CM_Accuracy <- function(binary_tables){
+  confusionMatrix(as.factor(binary_tables$SL), as.factor(binary_tables$Landsat), positive = "1")
+}
+
+# Applying the function, change the parameter for each table tested
+# Use these stats to record in an excel table 
+CM_Accuracy(SL)
+
+###############################################################################################
+# These reclassification functions change the values of snow/no snow in order to create accuracy maps
+###############################################################################################
+# Change values of landsat images to snow = 6 and no snow = 1
+reclass_binary_land <- function(raster_land){
+  reclassify(raster_land, c(0,2,6,  0,0, 1), na.omit = T)
+}
+
+# Change dataset values to snow = 3 and no snow = 0 
+reclass_binary_SF <- function(raster_SF){
+  reclassify(raster_SF, c(0,1,3,  0,0, 0), na.omit = T)
+}
+
+# Change landcover pixels to no forest = 1 and forest = 0
+reclass_binary_LC <- function(raster_LC){
+  reclassify(raster_LC, c(0,1,1,  2,8, 0), na.omit = T)
+}
+
+# This will then make snow-snow == 9(10), no snow-no snow == 0(1)
+# snow land- no snow data = 6(7), no snow land- snow data = 4(5) 
+# changing these values to the paratheses with landcover included
+
+# Reclassify the landcover image
+LC_bin <- reclass_binary_LC(LC_2017)%>%
+  crop(Thompson_Okanagan_Region_SHP)
+
+###############################################################################################
+# Apply these reclassifications to the handful of iamges used to visualize accuracy 
+
+april_1 <- reclass_binary_land(april_20)
+SF_2014_1 <- reclass_binary_SF(SF_2014_c[[1]])
+SF_april1 <- stack(april_1, SF_2014_1, LC_bin>0)%>%
+  calc(fun = sum)
+
+april_20 <- reclass_binary_land(april_20)
+SF_2015_20 <- reclass_binary_SF(SL_2015[[20]])
+SF_april20 <- stack(april_20, SF_2015_20, LC_bin>0)%>%
+  calc(fun = sum)
+
+may_1 <- reclass_binary_land(may_1)
+SF_2016_31 <- reclass_binary_SF(SL_2016[[31]])
+SF_may1 <- stack(may_1, SF_2016_31, LC_bin>0)%>%
+  calc(fun = sum)
+
+may_29 <- reclass_binary_land(may_29)
+SF_2016_59 <- reclass_binary_SF(SF_2016_c[[59]])
+SF_may29 <- stack(may_29, SF_2016_59, LC_bin>0)%>%
+  calc(fun = sum)
+
+may_22 <- reclass_binary_land(may_22)
+SF_2015_53 <- reclass_binary_SF(SL_2015[[53]])
+SF_may22 <- stack(may_22, SF_2015_53, LC_bin>0)%>%
+  calc(fun = sum)
+
+may_20 <- reclass_binary_land(may_20)
+SF_2017_51 <- reclass_binary_SF(SL_2017[[51]])
+SF_may20 <- stack(may_22, SF_2017_51, LC_bin>0)%>%
+  calc(fun = sum)
+
+june_24 <- reclass_binary_land(june_24)
+SF_2018_85 <- reclass_binary_SF(SL_2018[[85]])
+SF_june_24 <- stack(june_24, SF_2018_85, LC_bin>0)%>%
+  calc(fun = sum)
+
+may_10_r <- reclass_binary_land(may_10)
+SL_m10 <- reclass_binary_SF(SL_2019[[40]])
+SL_m10 <- stack(may_10_r, SL_m10, LC_bin>0)%>%
+  calc(fun = sum)
+
+june_7_r <- reclass_binary_land(june_7)
+SL_j7 <- reclass_binary_SF(SL_2015[[68]])
+SL_j7 <- stack(june_7_r, SL_j7, LC_bin>0)%>%
+  calc(fun = sum)
+
+# Plotting these images, assigning a color set
+# plot each of them
+# Identify the legend by labeling with accurate values
+
+colss <- c("#8DD3C7", "#FFFFB3", "firebrick3", "purple2", "violetred3", "orangered1", "#B3DE69", "#FCCDE5")
+
+
+plot(SL_j7, legend = F, col = colss, main = "Landsat-8 and Cloud Reduced Image\n Agreement, June 7th 2015")
+legend("bottomright", legend=c("Non-Forest True Negative","Forest True Negative","Non-Forest False Positive",
+                               "Forest False Positive","Non-Forest False Negative","Forest False Negative",
+                               "Non-Forest True Positive", "Forest True Positive"), fill = colss)
+
+# Add the outline of the study region
+plot(Thompson_Okanagan_Region_SHP, add = T)
+
+
+
+
