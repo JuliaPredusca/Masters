@@ -1,6 +1,6 @@
-<font size="12">Masters
+Masters Thesis Code 
 
-This repository is the code used for my masters thesis research
+<font size="12">This repository is the code used for my masters thesis research
 
 In order to run this, the data is required
 
